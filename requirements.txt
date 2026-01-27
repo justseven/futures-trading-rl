@@ -1,0 +1,29 @@
+# Machine Learning Framework
+torch==2.1.2
+stable-baselines3==2.3.2
+gymnasium==0.29.1
+shimmy>=0.2.1
+
+# Data Processing
+numpy==1.26.4
+pandas==2.1.4
+
+# Visualization
+matplotlib
+tensorboard
+
+# Trading Framework
+vnpy==4.3.0
+vnpy_ctp==6.7.11.2
+
+# Other Dependencies
+deap
+loguru
+nbformat
+pyqtgraph
+pyside6
+pyzmq
+qdarkstyle
+ta-lib
+tqdm
+tzlocal
