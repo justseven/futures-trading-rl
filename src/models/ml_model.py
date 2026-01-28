@@ -1,7 +1,8 @@
 import joblib
 import numpy as np
+import pandas as pd
 import tensorflow as tf
-from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.models import Sequential, Model, load_model
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input, concatenate, GRU, Conv1D, MaxPooling1D, Flatten, TimeDistributed
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -10,159 +11,240 @@ from sklearn.svm import SVR
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import os
 from typing import Tuple, Optional
+from sklearn.preprocessing import MinMaxScaler
 
 
 class PricePredictionModel:
-    """价格预测模型"""
+    """
+    期货价格预测模型
+    """
     
     def __init__(self, model_type='lstm', sequence_length=60, n_features=10):
         self.model_type = model_type
         self.sequence_length = sequence_length
         self.n_features = n_features
         self.model = None
-        self._build_model()
+        self.scaler = MinMaxScaler(feature_range=(0, 1))
+        self.target_scaler = MinMaxScaler(feature_range=(0, 1))
         
-    def _build_model(self):
-        """构建模型"""
+    def _build_lstm_model(self) -> Sequential:
+        """
+        构建LSTM模型，用于预测30分钟后的价格
+        """
+        model = Sequential([
+            Input(shape=(self.sequence_length, self.n_features)),  # 使用Input层作为第一层
+            LSTM(units=50, return_sequences=True),
+            Dropout(0.2),
+            LSTM(units=50, return_sequences=True),
+            Dropout(0.2),
+            LSTM(units=50, return_sequences=False),
+            Dropout(0.2),
+            Dense(units=25),
+            Dense(units=1)
+        ])
+        
+        model.compile(
+            optimizer=Adam(learning_rate=0.001),
+            loss='mean_squared_error',
+            metrics=['mae']
+        )
+        
+        return model
+    
+    def _build_gru_model(self) -> Sequential:
+        """
+        构建GRU模型
+        """
+        model = Sequential([
+            Input(shape=(self.sequence_length, self.n_features)),  # 使用Input层作为第一层
+            GRU(units=50, return_sequences=True),
+            Dropout(0.2),
+            GRU(units=50, return_sequences=True),
+            Dropout(0.2),
+            GRU(units=50, return_sequences=False),
+            Dropout(0.2),
+            Dense(units=25),
+            Dense(units=1)
+        ])
+        
+        model.compile(
+            optimizer=Adam(learning_rate=0.001),
+            loss='mean_squared_error',
+            metrics=['mae']
+        )
+        
+        return model
+    
+    def _build_cnn_lstm_model(self) -> Sequential:
+        """
+        构建CNN-LSTM混合模型
+        """
+        model = Sequential([
+            Input(shape=(self.sequence_length, self.n_features)),  # 使用Input层作为第一层
+            Conv1D(filters=64, kernel_size=3, activation='relu'),
+            MaxPooling1D(pool_size=2),
+            LSTM(units=50, return_sequences=True),
+            Dropout(0.2),
+            LSTM(units=50, return_sequences=False),
+            Dropout(0.2),
+            Dense(units=25),
+            Dense(units=1)
+        ])
+        
+        model.compile(
+            optimizer=Adam(learning_rate=0.001),
+            loss='mean_squared_error',
+            metrics=['mae']
+        )
+        
+        return model
+    
+    def build_model(self):
+        """
+        根据指定类型构建模型
+        """
         if self.model_type == 'lstm':
             self.model = self._build_lstm_model()
+        elif self.model_type == 'gru':
+            self.model = self._build_gru_model()
         elif self.model_type == 'cnn-lstm':
             self.model = self._build_cnn_lstm_model()
-        elif self.model_type == 'hybrid':
-            self.model = self._build_hybrid_model()
-        elif self.model_type == 'random_forest':
-            self.model = RandomForestRegressor(n_estimators=100, random_state=42)
-        elif self.model_type == 'svm':
-            self.model = SVR(kernel='rbf', C=1.0, gamma='scale')
         else:
             raise ValueError(f"Unsupported model type: {self.model_type}")
-            
-    def _build_lstm_model(self):
-        """构建LSTM模型"""
-        model = Sequential([
-            LSTM(50, return_sequences=True, input_shape=(self.sequence_length, self.n_features)),
-            Dropout(0.2),
-            LSTM(50, return_sequences=False),
-            Dropout(0.2),
-            Dense(25),
-            Dense(1)
-        ])
-        model.compile(optimizer=Adam(learning_rate=0.001), loss='mse', metrics=['mae'])
-        return model
+    
+    def prepare_data_for_30min_prediction(self, df: pd.DataFrame, prediction_horizon: int = 30) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        准备数据用于30分钟后价格预测
+        """
+        # 选择用于训练的特征列
+        feature_columns = ['open', 'high', 'low', 'close', 'volume']
         
-    def _build_cnn_lstm_model(self):
-        """构建CNN-LSTM混合模型"""
-        model = Sequential([
-            TimeDistributed(Conv1D(filters=64, kernel_size=1, activation='relu'), 
-                          input_shape=(self.sequence_length, self.n_features, 1)),
-            TimeDistributed(MaxPooling1D(pool_size=2)),
-            TimeDistributed(Flatten()),
-            LSTM(50, return_sequences=True),
-            Dropout(0.2),
-            LSTM(50, return_sequences=False),
-            Dropout(0.2),
-            Dense(25),
-            Dense(1)
-        ])
-        model.compile(optimizer=Adam(learning_rate=0.001), loss='mse', metrics=['mae'])
-        return model
+        # 添加技术指标
+        df = self.add_technical_indicators(df)
         
-    def _build_hybrid_model(self):
-        """构建更复杂的混合模型"""
-        # LSTM分支
-        lstm_input = Input(shape=(self.sequence_length, self.n_features), name='lstm_input')
-        lstm_branch = LSTM(50, return_sequences=True)(lstm_input)
-        lstm_branch = Dropout(0.2)(lstm_branch)
-        lstm_branch = LSTM(50, return_sequences=False)(lstm_branch)
-        lstm_branch = Dense(25, activation='relu')(lstm_branch)
+        # 选择所有特征
+        all_feature_cols = feature_columns + [col for col in df.columns if col not in feature_columns and col not in ['datetime']]
+        features = df[all_feature_cols].values
         
-        # CNN分支
-        cnn_input = Input(shape=(self.sequence_length, self.n_features), name='cnn_input')
-        cnn_branch = Conv1D(filters=64, kernel_size=3, activation='relu')(cnn_input)
-        cnn_branch = MaxPooling1D(pool_size=2)(cnn_branch)
-        cnn_branch = Flatten()(cnn_branch)
-        cnn_branch = Dense(50, activation='relu')(cnn_branch)
+        # 标准化特征
+        scaled_features = self.scaler.fit_transform(features)
         
-        # 合并两个分支
-        merged = concatenate([lstm_branch, cnn_branch])
-        merged = Dense(50, activation='relu')(merged)
-        merged = Dropout(0.2)(merged)
-        output = Dense(1, name='output')(merged)
+        # 标准化目标变量（收盘价）
+        target_values = df[['close']].values
+        scaled_target = self.target_scaler.fit_transform(target_values)
         
-        model = Model(inputs=[lstm_input, cnn_input], outputs=output)
-        model.compile(optimizer=Adam(learning_rate=0.001), loss='mse', metrics=['mae'])
-        return model
+        # 准备序列数据，目标是30个时间步长后的价格
+        X, y = [], []
+        for i in range(self.sequence_length, len(scaled_features) - prediction_horizon + 1):
+            X.append(scaled_features[i - self.sequence_length:i])
+            y.append(scaled_target[i + prediction_horizon - 1, 0])  # 30分钟后收盘价
         
-    def train(self, X_train, y_train, X_val=None, y_val=None, epochs=100, batch_size=32):
-        """训练模型"""
-        if self.model_type in ['lstm', 'cnn-lstm']:
-            # 对于神经网络模型
-            callbacks = [
-                EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True),
-                ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-7)
-            ]
-            
-            validation_data = (X_val, y_val) if X_val is not None and y_val is not None else None
-            
-            history = self.model.fit(
-                X_train, y_train,
-                batch_size=batch_size,
-                epochs=epochs,
-                validation_data=validation_data,
-                callbacks=callbacks,
-                verbose=1
-            )
-            return history
-        else:
-            # 对于传统机器学习模型
-            # 需要展平输入数据 (samples, timesteps, features) -> (samples, timesteps*features)
-            X_train_flat = X_train.reshape(X_train.shape[0], -1)
-            self.model.fit(X_train_flat, y_train)
-            
-    def predict(self, X):
-        """预测"""
-        if self.model_type in ['random_forest', 'svm']:
-            X_flat = X.reshape(X.shape[0], -1)
-            return self.model.predict(X_flat)
-        else:
-            return self.model.predict(X)
+        X, y = np.array(X), np.array(y)
         
-    def evaluate(self, X_test, y_test) -> dict:
-        """评估模型性能"""
-        predictions = self.predict(X_test)
+        return X, y
+    
+    def add_technical_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        添加技术指标作为额外特征
+        """
+        # 移动平均线
+        df['ma_5'] = df['close'].rolling(window=5).mean()
+        df['ma_10'] = df['close'].rolling(window=10).mean()
+        df['ma_20'] = df['close'].rolling(window=20).mean()
         
-        mse = mean_squared_error(y_test, predictions)
-        mae = mean_absolute_error(y_test, predictions)
-        r2 = r2_score(y_test, predictions)
+        # 相对强弱指数
+        delta = df['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        df['rsi'] = 100 - (100 / (1 + rs))
         
-        # 计算方向准确性 (预测涨跌方向正确的比例)
-        actual_changes = np.diff(y_test.flatten())
-        predicted_changes = np.diff(predictions.flatten())
-        direction_accuracy = np.mean(np.sign(actual_changes) == np.sign(predicted_changes))
+        # 布林带
+        df['bb_middle'] = df['close'].rolling(window=20).mean()
+        bb_std = df['close'].rolling(window=20).std()
+        df['bb_upper'] = df['bb_middle'] + (bb_std * 2)
+        df['bb_lower'] = df['bb_middle'] - (bb_std * 2)
+        df['bb_width'] = df['bb_upper'] - df['bb_lower']
+        df['bb_position'] = (df['close'] - df['bb_lower']) / df['bb_width']
         
-        return {
-            'mse': mse,
-            'mae': mae,
-            'rmse': np.sqrt(mse),
-            'r2': r2,
-            'direction_accuracy': direction_accuracy
-        }
+        # 价格变化率
+        df['pct_change'] = df['close'].pct_change()
         
+        # 成交量移动平均
+        df['vol_ma'] = df['volume'].rolling(window=10).mean()
+        
+        # 最高价与最低价之差
+        df['hl_diff'] = df['high'] - df['low']
+        
+        # 填充NaN值
+        df = df.fillna(method='bfill').fillna(method='ffill')
+        
+        return df
+    
+    def train(self, X: np.ndarray, y: np.ndarray, validation_split: float = 0.2, epochs: int = 100, batch_size: int = 32):
+        """
+        训练模型
+        """
+        if self.model is None:
+            self.build_model()
+        
+        # 定义回调函数
+        early_stopping = EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True)
+        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=0.0001)
+        
+        # 训练模型
+        history = self.model.fit(
+            X, y,
+            validation_split=validation_split,
+            epochs=epochs,
+            batch_size=batch_size,
+            callbacks=[early_stopping, reduce_lr],
+            verbose=1
+        )
+        
+        return history
+    
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """
+        预测
+        """
+        if self.model is None:
+            raise ValueError("Model not built yet. Call build_model() or load_model() first.")
+        
+        predictions = self.model.predict(X)
+        # 反标准化预测结果
+        predictions = self.target_scaler.inverse_transform(predictions.reshape(-1, 1))
+        return predictions.flatten()
+    
     def save_model(self, filepath: str):
-        """保存模型"""
-        # 确保目录存在
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        """
+        保存模型
+        """
+        if self.model is None:
+            raise ValueError("No model to save. Train or load a model first.")
         
-        if self.model_type in ['lstm', 'cnn-lstm', 'hybrid']:
-            self.model.save(filepath)
-        else:
-            joblib.dump(self.model, filepath)
+        # 保存模型架构和权重
+        self.model.save(filepath)
         
+        # 保存缩放器
+        scaler_filepath = filepath.replace('.keras', '_scaler.pkl')
+        joblib.dump(self.scaler, scaler_filepath)
+        
+        target_scaler_filepath = filepath.replace('.keras', '_target_scaler.pkl')
+        joblib.dump(self.target_scaler, target_scaler_filepath)
+    
     def load_model(self, filepath: str):
-        """加载模型"""
-        if self.model_type in ['lstm', 'cnn-lstm', 'hybrid']:
-            self.model = tf.keras.models.load_model(filepath)
-        else:
-            self.model = joblib.load(filepath)
-
-
+        """
+        加载模型
+        """
+        # 加载模型
+        self.model = load_model(filepath)
+        
+        # 加载缩放器
+        scaler_filepath = filepath.replace('.keras', '_scaler.pkl')
+        if os.path.exists(scaler_filepath):
+            self.scaler = joblib.load(scaler_filepath)
+        
+        target_scaler_filepath = filepath.replace('.keras', '_target_scaler.pkl')
+        if os.path.exists(target_scaler_filepath):
+            self.target_scaler = joblib.load(target_scaler_filepath)

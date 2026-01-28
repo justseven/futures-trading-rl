@@ -44,13 +44,20 @@ def main():
     main_engine.add_app(CtaStrategyApp)
 
     # 只使用CTP配置文件
-    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    ctp_config_path = os.path.join(script_dir, "settings", "simnow_setting.json")
-    
+    script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    ctp_config_path = os.path.join(script_dir, "settings", "simnow_setting_template.json")
+
     print(f"当前工作目录: {os.getcwd()}")
     print(f"脚本所在目录: {script_dir}")
-    print(f"检查CTP配置文件是否存在: {ctp_config_path}")
-    print(f"CTP配置文件存在: {os.path.exists(ctp_config_path)}")
+    print(f"CTP配置文件路径: {ctp_config_path}")
+    
+    if not os.path.exists(ctp_config_path):
+        print(f"❌ CTP配置文件不存在: {ctp_config_path}")
+        print("💡 请按以下步骤创建配置文件:")
+        print("   1. 访问 https://www.simnow.com.cn/ 注册模拟交易账户")
+        print("   2. 复制模板文件: cp settings/simnow_setting_template.json settings/simnow_setting_one.json")
+        print("   3. 编辑 settings/simnow_setting_one.json 文件，填入您的账户信息")
+        return
     
     # 检查CTP配置文件是否存在且完整
     config_to_use = None

@@ -9,7 +9,7 @@ matplotlib>=3.4.0
 ta>=0.7.0
 joblib>=1.1.0
 seaborn>=0.11.0
-TA-Lib==0.4.24
+TA-Lib>=0.4.24
 pybind11>=2.6.2
 cython>=0.29.24
 pathlib

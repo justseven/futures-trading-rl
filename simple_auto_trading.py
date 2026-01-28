@@ -80,11 +80,14 @@ class SimpleAutoTrading:
     
     def connect_to_broker(self):
         """连接到期货公司"""
-        config_path = "settings/simnow_setting.json"
+        config_path = "settings/simnow_setting_template.json"
         
         if not os.path.exists(config_path):
-            print(f"配置文件不存在: {config_path}")
-            print("请先配置SimNow仿真账户信息")
+            print(f"❌ 配置文件不存在: {config_path}")
+            print("💡 请按以下步骤创建配置文件:")
+            print("   1. 访问 https://www.simnow.com.cn/ 注册模拟交易账户")
+            print("   2. 复制模板文件: cp settings/simnow_setting_template.json settings/simnow_setting_one.json")
+            print("   3. 编辑 settings/simnow_setting_one.json 文件，填入您的账户信息")
             return False
         
         try:
@@ -94,17 +97,28 @@ class SimpleAutoTrading:
             print(f"加载配置文件失败: {e}")
             return False
         
-        print("正在连接CTP网关...")
+        print(f"正在连接CTP网关，使用配置文件: {config_path}...")
         self.main_engine.connect(setting, "CTP")
         
         # 等待连接建立
         print("等待连接建立", end="")
-        for i in range(10):
+        for i in range(30):  # 增加等待时间至30秒
             time.sleep(1)
             print(".", end="", flush=True)
             
-        print("\nCTP网关连接完成")
-        return True
+            # 检查是否已连接到交易和行情服务器
+            # 尝试获取合约信息判断连接状态
+            try:
+                contracts = self.main_engine.get_all_contracts()
+                if len(contracts) > 0:
+                    print(f"\n✅ 行情连接成功！已获取到 {len(contracts)} 个合约信息")
+                    return True
+            except Exception:
+                pass
+        else:
+            print(f"\n⚠️ CTP连接超时")
+            print("提示: 请检查SimNow账户配置、网络连接，并确认交易/行情服务器地址是否正确")
+            return False
     
     def subscribe_market_data(self, symbol):
         """订阅市场数据"""

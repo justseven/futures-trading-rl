@@ -111,7 +111,7 @@ class ComprehensiveTradingSystem:
                     print(f"训练 {symbol} 模型时出错: {e}")
                     continue
     
-    def connect_ctp(self, config_path="settings/simnow_setting.json"):
+    def connect_ctp(self, config_path="settings/simnow_setting_template.json"):
         """连接CTP"""
         print("正在连接CTP...")
         
@@ -127,8 +127,11 @@ class ComprehensiveTradingSystem:
         print(f"配置文件是否存在: {os.path.exists(full_config_path)}")
         
         if not os.path.exists(full_config_path):
-            print(f"配置文件不存在: {full_config_path}")
-            print("提示: 请先创建配置文件，配置SimNow或实盘账户信息")
+            print(f"❌ 配置文件不存在: {full_config_path}")
+            print("💡 请按以下步骤创建配置文件:")
+            print("   1. 访问 https://www.simnow.com.cn/ 注册模拟交易账户")
+            print("   2. 复制模板文件: cp settings/simnow_setting_template.json settings/simnow_setting_one.json")
+            print("   3. 编辑 settings/simnow_setting_one.json 文件，填入您的账户信息")
             return False
             
         try:
@@ -322,6 +325,52 @@ class ComprehensiveTradingSystem:
         
         # 关闭所有引擎
         self.main_engine.close()
+    
+    def run(self):
+        """
+        运行交易系统
+        """
+        print("期货智能交易系统")
+        print("=" * 50)
+        print("功能:")
+        print("1. 检测当前是否在交易时间内")
+        print("2. 获取期货合约信息")
+        print("3. 使用rb2605.SHFE合约进行行情监测")
+        print("4. 实时监控行情数据")
+        print("5. 集成预测模型进行价格预测")
+        print("6. 基于预测结果执行交易决策")
+        print("7. 实施风险管理措施")
+        print("8. 训练并回测多个期货品种的模型")
+        print("=" * 50)
+        
+        print("开始智能交易...")
+        
+        # 检查当前时间是否在交易时间内
+        if not self.is_trading_time():
+            print("❌ 当前时间不在交易时间内，程序退出")
+            print("💡 注意：即使在非交易时间也可以进行模型训练")
+            return
+        
+        print(f"当前时间 {datetime.now().strftime('%H:%M:%S')} 在交易时间内")
+        
+        # 首先初始化和训练预测模型 - 必须在连接CTP之前完成
+        print("🔄 开始初始化预测模型...")
+        self.initialize_prediction_model()
+        
+        # 确保模型已加载或训练完成后再继续
+        print("✅ 预测模型已准备就绪，现在开始连接CTP网关...")
+        
+        # 连接到期货公司并启动自动交易
+        print("🔄 开始连接CTP网关...")
+        print("💡 注意：首次运行前请按以下步骤配置SimNow账户:")
+        print("   1. 访问 https://www.simnow.com.cn/ 注册模拟交易账户")
+        print("   2. 复制模板文件: cp settings/simnow_setting_template.json settings/simnow_setting_one.json")
+        print("   3. 编辑 settings/simnow_setting_one.json 文件，填入您的账户信息")
+        print("🔄 开始订阅合约行情...")
+        print("🔄 开始启动事件引擎...")
+        
+        # 直接运行自动交易，其中包含了连接网关、订阅行情和启动事件引擎
+        self.run_auto_trading()
 
 
 def main():

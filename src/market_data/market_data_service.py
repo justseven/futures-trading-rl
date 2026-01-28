@@ -278,11 +278,15 @@ def run_market_data_demo():
     main_engine.add_gateway(CtpGateway)
     
     # 连接CTP
-    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    setting_path = os.path.join(script_dir, "settings", "simnow_setting.json")
-    
+    script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    setting_path = os.path.join(script_dir, "settings", "simnow_setting_template.json")
+
     if not os.path.exists(setting_path):
-        print(f"配置文件不存在: {setting_path}")
+        print(f"❌ 配置文件不存在: {setting_path}")
+        print("💡 请按以下步骤创建配置文件:")
+        print("   1. 访问 https://www.simnow.com.cn/ 注册模拟交易账户")
+        print("   2. 复制模板文件: cp settings/simnow_setting_template.json settings/simnow_setting_one.json")
+        print("   3. 编辑 settings/simnow_setting_one.json 文件，填入您的账户信息")
         return
     
     try:
