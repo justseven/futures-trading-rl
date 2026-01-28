@@ -1,29 +1,17 @@
-# Machine Learning Framework
-torch==2.1.2
-stable-baselines3==2.3.2
-gymnasium==0.29.1
-shimmy>=0.2.1
-
-# Data Processing
-numpy==1.26.4
-pandas==2.1.4
-
-# Visualization
-matplotlib
-tensorboard
-
-# Trading Framework
-vnpy==4.3.0
-vnpy_ctp==6.7.11.2
-
-# Other Dependencies
-deap
-loguru
-nbformat
-pyqtgraph
-pyside6
-pyzmq
-qdarkstyle
-ta-lib
-tqdm
-tzlocal
+vnpy>=3.0.0
+vnpy_ctp>=3.0.0
+vnpy_ctastrategy>=1.0.0
+pandas>=1.3.0
+numpy>=1.20.0
+scikit-learn>=1.0.0
+tensorflow>=2.6.0
+matplotlib>=3.4.0
+ta>=0.7.0
+joblib>=1.1.0
+seaborn>=0.11.0
+TA-Lib==0.4.24
+pybind11>=2.6.2
+cython>=0.29.24
+pathlib
+psutil>=5.8.0
+scipy>=1.7.0

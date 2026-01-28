@@ -1,93 +1,67 @@
-# 期货行情预测与交易系统
+# 期货散户交易系统
 
-这是一个基于强化学习技术的期货行情预测与交易系统，使用vnpy框架接入行情与交易接口，结合Stable-Baselines3构建强化学习模型，在自定义Gym环境中训练交易策略，并支持回测与实时模拟交易。
+这是一个基于VNPy的期货自动化交易系统，具有AI预测功能。
 
-## 项目概述
+## 功能特点
 
-本项目旨在利用强化学习技术对期货行情进行建模与交易策略训练，结合真实行情数据和模拟环境实现交易决策优化。
+- 自动收集期货市场数据
+- 基于深度学习的价格预测模型
+- 风险管理和回测功能
+- 实时交易执行
 
-- 目标用户: 量化交易研究人员、算法交易开发者、期货市场分析人员
-- 核心功能: 从历史K线数据中提取有效特征进行趋势预测，构建适合期货交易的强化学习环境，实现回测与实盘交易的一致性
+## 系统要求
 
-## 系统功能
+- Python 3.7+
+- Windows/Linux/macOS
 
-- **数据获取**: 通过[data/getKLine.py](file:///f:/期货行情预测/data/getKLine.py)获取K线数据
-- **指标计算**: 在[indicators.py](file:///f:/期货行情预测/indicators.py)中实现技术指标（如MA、RSI等）
-- **强化学习环境**: [env_trade.py](file:///f:/期货行情预测/env_trade.py)封装符合gymnasium规范的交易环境
-- **策略训练**: [train_trade.py](file:///f:/期货行情预测/train_trade.py)使用PPO等算法训练交易模型
-- **回测系统**: [backtest_trade.py](file:///f:/期货行情预测/backtest_trade.py)执行离线策略回测
-- **实时交易**: [real_time_trade.py](file:///f:/期货行情预测/real_time_trade.py)与[sim_real_time_trade.py](file:///f:/期货行情预测/sim_real_time_trade.py)支持实时或模拟交易
-- **CTP交易接口**: 通过[ctp_engine.py](file:///f:/期货行情预测/ctp_engine.py)连接国内期货市场交易通道
-- **账户管理**: [account.py](file:///f:/期货行情预测/account.py)处理资金、持仓等账户状态
-- **入场规则**: [entry_rules.py](file:///f:/期货行情预测/entry_rules.py)定义基础交易信号逻辑
+## 安装步骤
 
-## 技术架构
-
-- **机器学习框架**: PyTorch + Stable-Baselines3
-- **数据处理**: numpy, pandas
-- **可视化**: matplotlib, tensorboard
-- **交易框架**: vnpy
-- **环境**: gymnasium (替代原gym)
-
-## 安装与运行
-
-1. 克隆项目:
-   ```bash
-   git clone https://github.com/yourusername/futures-prediction.git
+1. 克隆项目到本地
+2. 创建虚拟环境：
    ```
-
-2. 安装依赖:
-   ```bash
+   python -m venv venv
+   ```
+3. 激活虚拟环境：
+   - Windows: `venv\Scripts\activate`
+   - Linux/macOS: `source venv/bin/activate`
+4. 安装依赖：
+   ```
    pip install -r requirements.txt
    ```
+5. 配置CTP/SimNow连接信息
 
-3. 运行训练:
-   ```bash
-   python train_trade.py
+## 配置SimNow仿真账户
+
+要使用仿真交易功能，您需要：
+
+1. 访问 http://www.simnow.com.cn 注册SimNow仿真账户
+2. 在 `settings/simnow_setting.json` 中填写您的账户信息：
+   ```json
+   {
+     "用户名": "您的用户名",
+     "密码": "您的密码",
+     "经纪商代码": "9999",
+     "交易服务器": "tcp://180.168.146.187:10202",
+     "行情服务器": "tcp://180.168.146.187:10212",
+     "产品信息": "simnow_client_test",
+     "授权编码": "0000000000000000",
+     "账户编号": "您的账户编号"
+   }
    ```
 
-4. 运行回测:
-   ```bash
-   python backtest_trade.py
-   ```
+## 运行系统
 
-5. 连接到CTP:
-   ```bash
-   python ctp_engine.py
-   ```
-
-## CTP连接配置
-
-项目中包含了CTP连接配置的详细说明，请参阅[CTP_CONNECTION_GUIDE.md](file:///f:/期货行情预测/CTP_CONNECTION_GUIDE.md)。
-
-## 文件结构
+激活虚拟环境后，运行：
 
 ```
-.
-├── data
-│   └── getKLine.py
-├── account.py
-├── backtest_trade.py
-├── ctp_engine.py
-├── entry_rules.py
-├── env_trade.py
-├── indicators.py
-├── real_time_trade.py
-├── sim_real_time_trade.py
-├── test_ctp_connection.py
-├── train_trade.py
-├── CTP_CONNECTION_GUIDE.md
-├── connect_ctp.py
-├── debug_ctp_connection.py
-├── fixed_ctp_connection.py
-├── final_ctp_connection.py
-├── corrected_ctp_config.py
-├── complete_ctp_config.py
-└── README.md
+python run_ctp_trading.py
 ```
+
+系统将自动启动综合交易系统，包括数据收集、模型训练和实时交易功能。
 
 ## 注意事项
 
-- 生产部署时需保护API密钥与交易密码
-- CTP账户信息应加密存储
-- 建议先使用模拟账户测试所有功能
+- 本系统仅供学习和研究使用，请勿用于实盘交易
+- 仿真交易与实盘交易存在差异
+- 使用前请充分了解期货交易的风险
+- 请遵守相关法律法规
