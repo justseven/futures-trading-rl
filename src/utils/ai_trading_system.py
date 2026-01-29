@@ -2,6 +2,7 @@ import signal
 import sys
 import os
 import json
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
@@ -13,33 +14,33 @@ if project_root not in sys.path:
 
 # 模块导入修正为绝对路径风格（根据实际目录结构调整）
 try:
-    from models.ml_model import PricePredictionModel
+    from src.models.ml_model import PricePredictionModel
 except ImportError as e:
-    print("无法导入 PricePredictionModel，请检查 models/ml_model.py 是否存在")
+    print("无法导入 PricePredictionModel，请检查 src/models/ml_model.py 是否存在")
     raise e
 
 try:
-    from data.data_processor import DataProcessor
+    from src.data.data_processor import DataProcessor
 except ImportError as e:
-    print("无法导入 DataProcessor，请检查 data/data_processor.py 是否存在")
+    print("无法导入 DataProcessor，请检查 src/data/data_processor.py 是否存在")
     raise e
 
 try:
-    from data.data_collector import DataCollector
+    from src.data.data_collector import DataCollector
 except ImportError as e:
-    print("无法导入 DataCollector，请检查 data/data_collector.py 是否存在")
+    print("无法导入 DataCollector，请检查 src/data/data_collector.py 是否存在")
     raise e
 
 try:
-    from risk.risk_manager import RiskManager
+    from src.risk_management.risk_manager import RiskManager
 except ImportError as e:
-    print("无法导入 RiskManager，请检查 risk/risk_manager.py 是否存在")
+    print("无法导入 RiskManager，请检查 src/risk_management/risk_manager.py 是否存在")
     raise e
 
 try:
-    from strategies.predictive_trading_strategy import PredictiveTradingStrategy
+    from src.strategies.predictive_trading_strategy import PredictiveTradingStrategy
 except ImportError as e:
-    print("无法导入 PredictiveTradingStrategy，请检查 strategies/predictive_trading_strategy.py 是否存在")
+    print("无法导入 PredictiveTradingStrategy，请检查 src/strategies/predictive_trading_strategy.py 是否存在")
     raise e
 
 # VNPy 相关导入保持不变
@@ -84,8 +85,45 @@ class AITradingSystem:
         # 注册风险检查器
         self.main_engine.event_engine.register('event_order', self.risk_check_event)
         
+        # 从配置文件加载CTP设置
+        self.ctp_setting = self._load_ctp_setting()
+    
+    def _load_ctp_setting(self):
+        """从配置文件加载CTP设置"""
+        from pathlib import Path
+        
+        # 尝试从多个可能的位置加载配置
+        config_paths = [
+            "settings/simnow_setting_one.json",
+            "settings/simnow_setting_two.json",
+            "settings/simnow_setting_template.json",
+            "settings/ctp_setting.json"
+        ]
+        
+        for config_path in config_paths:
+            path = Path(config_path)
+            if path.exists():
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        config = json.load(f)
+                    
+                    # 验证配置是否包含占位符
+                    if ("<YOUR_USER_ID>" in str(config) or 
+                        "<YOUR_PASSWORD>" in str(config)):
+                        print(f"⚠️  警告: 配置文件 {config_path} 仍包含占位符")
+                        print("   请编辑配置文件并填入您的真实账户信息")
+                        continue
+                    
+                    return config
+                except Exception as e:
+                    print(f"加载配置文件 {config_path} 时出错: {e}")
+                    continue
+        
+        print("❌ 未找到有效配置文件，请运行 setup_env.py 进行初始化")
+        return None
+
     def risk_check_event(self, event):
-        """风险检查事件处理"""
+        """风险检查事件处理器"""
         order = event.data
         if hasattr(order, 'vt_orderid'):  # 确保是订单对象
             # 检查订单是否符合风险管理规则
@@ -96,111 +134,80 @@ class AITradingSystem:
     
     def connect_gateway(self, gateway_name, setting):
         """连接交易网关"""
-        if gateway_name.lower() == 'ctp':
+        if gateway_name.lower() == 'ctp' and setting:
             self.main_engine.add_gateway(CtpGateway)
             self.main_engine.connect(setting, "CTP")
-            print(f"已连接到CTP网关")
         # 可扩展其他网关如：SimNow, Femas等
         
     def train_model(self, symbol, exchange, start_date, end_date, model_type='lstm'):
         """训练预测模型"""
-        print(f"开始训练 {symbol} 的预测模型...")
-        
-        # 1. 获取历史数据
-        print("正在获取历史数据...")
-        data = self.data_collector.load_history_data(
-            symbol=symbol,
-            exchange=exchange,
-            start_date=start_date,
-            end_date=end_date
-        )
-        
-        if data.empty:
-            print(f"无法获取 {symbol} 的历史数据，训练终止")
-            return False
-        
-        print(f"获取到 {len(data)} 条历史数据")
-        
-        # 2. 数据预处理
-        print("正在进行数据预处理...")
-        cleaned_data = self.data_processor.clean_data(data)
-        engineered_data = self.data_processor.feature_engineering(cleaned_data)
-        processed_data = self.data_processor.normalize_data(engineered_data)
-        
-        # 3. 准备训练数据
-        print("正在准备训练数据...")
-        sequence_length = 60
-        X, y = self.data_processor.prepare_supervised_data(processed_data, lookback=sequence_length)
-        
-        if len(X) == 0:
-            print("没有足够的数据用于训练")
-            return False
+        try:
+            print(f"开始训练 {symbol} 合约的 {model_type} 模型...")
             
-        # 4. 分割训练/测试集 (80% 训练, 20% 测试)
-        split_idx = int(len(X) * 0.8)
-        X_train, X_test = X[:split_idx], X[split_idx:]
-        y_train, y_test = y[:split_idx], y[split_idx:]
-        
-        print(f"训练集大小: {len(X_train)}, 测试集大小: {len(X_test)}")
-        
-        # 5. 创建并训练模型
-        print("正在创建和训练模型...")
-        model = PricePredictionModel(
-            model_type=model_type,
-            sequence_length=sequence_length,
-            n_features=X.shape[2] if len(X.shape) > 2 else 1
-        )
-        
-        # 训练模型
-        history = model.train(
-            X_train=X_train,
-            y_train=y_train,
-            X_val=X_test,
-            y_val=y_test,
-            epochs=50,
-            batch_size=32
-        )
-        
-        # 6. 评估模型
-        print("正在评估模型...")
-        evaluation = model.evaluate(X_test, y_test)
-        print(f"模型评估结果: {evaluation}")
-        
-        # 7. 保存模型
-        model_dir = "models"
-        os.makedirs(model_dir, exist_ok=True)
-        symbol_safe = symbol.replace('.', '_')
-        model_path = os.path.join(model_dir, f"{symbol_safe}_prediction_model.h5")
-        model.save_model(model_path)
-        
-        print(f"模型已保存至: {model_path}")
-        return True
+            # 1. 获取历史数据
+            data = self.data_collector.load_history_data(symbol, start_date, end_date)
+            
+            if data is None or len(data) == 0:
+                print(f"❌ 无法获取 {symbol} 的历史数据")
+                return False
+            
+            # 2. 数据预处理
+            processed_data = self.data_processor.clean_data(data)
+            features = self.data_processor.feature_engineering(processed_data)
+            normalized_data = self.data_processor.normalize_data(features)
+            
+            # 3. 构建训练集
+            X, y = self.prepare_training_data(normalized_data)
+            
+            if len(X) == 0:
+                print(f"❌ 无法为 {symbol} 准备训练数据")
+                return False
+            
+            # 4. 分割训练/测试集
+            split_idx = int(len(X) * 0.8)
+            X_train, X_test = X[:split_idx], X[split_idx:]
+            y_train, y_test = y[:split_idx], y[split_idx:]
+            
+            # 5. 训练模型
+            model = PricePredictionModel(model_type=model_type)
+            model.train(X_train, y_train, X_test, y_test)
+            
+            # 6. 保存模型
+            model_path = os.path.join('models', f'{exchange.value}_{symbol}_prediction_model.keras')
+            model.save(model_path)
+            
+            print(f"✅ {symbol} 的预测模型训练完成，已保存至 {model_path}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ 训练模型时出现错误: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
         
     def start_trading(self, strategy_setting):
         """启动实盘交易"""
         cta_engine = self.main_engine.get_engine("CtaStrategy")
-        
-        # 添加策略
-        cta_engine.add_strategy(
-            PredictiveTradingStrategy, 
-            {
-                "class_name": "PredictiveTradingStrategy",
-                "author": "AI Trader",
-                "vt_symbol": strategy_setting["vt_symbol"],
-                "setting": {
-                    "prediction_threshold": strategy_setting.get("prediction_threshold", 0.01),
-                    "fixed_size": strategy_setting.get("fixed_size", 1),
-                    "trailing_percent": strategy_setting.get("trailing_percent", 0.8)
+        if cta_engine:
+            # 使用策略类而不是字符串
+            strategy_class = PredictiveTradingStrategy
+            strategy_name = f"predictive_strategy_{strategy_setting['vt_symbol'][:10]}_{int(datetime.now().timestamp())}"
+            
+            cta_engine.add_strategy(
+                class_=strategy_class,
+                strategy_name=strategy_name,
+                vt_symbol=strategy_setting["vt_symbol"],
+                setting={
+                    "prediction_threshold": strategy_setting["prediction_threshold"],
+                    "fixed_size": strategy_setting["fixed_size"],
+                    "trailing_percent": strategy_setting["trailing_percent"]
                 }
-            }
-        )
-        
-        # 启动策略
-        strategy_name = f"PredictiveStrategy_{strategy_setting['vt_symbol'].replace('.', '_')}"
-        cta_engine.init_strategy(strategy_name)
-        cta_engine.start_strategy(strategy_name)
-        
-        print(f"策略 {strategy_name} 已启动")
+            )
+            
+            cta_engine.start_strategy(strategy_name)
+            print(f"✅ 策略 {strategy_name} 已启动")
+        else:
+            print("❌ 无法获取CTA策略引擎")
         
     def run_ui(self):
         """运行UI界面"""

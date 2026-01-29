@@ -50,7 +50,7 @@ except ImportError as e:
 
 
 class ComprehensiveTradingSystem:
-    """综合交易系统"""
+    """综合期货交易系统"""
     
     def __init__(self):
         # 初始化引擎
@@ -60,317 +60,313 @@ class ComprehensiveTradingSystem:
         # 添加CTP网关
         self.main_engine.add_gateway(CtpGateway)
         
-        # 添加CTA策略应用
+        # 添加CTA策略应用（关键步骤 - 必须在连接CTP前完成）
         self.main_engine.add_app(CtaStrategyApp)
         
-        # 初始化各模块
-        self.data_collector = DataCollector(self.main_engine)
+        # 获取CTA策略引擎实例
+        self.cta_engine = self.main_engine.get_engine("cta_strategy")
+        
+        # 初始化行情服务
+        self.market_service = MarketDataService(self.main_engine, self.event_engine)
+        
+        # 初始化数据处理器
         self.data_processor = DataProcessor()
-        self.risk_manager = RiskManager()
-        self.trainer_backtester = ModelTrainerAndBacktester()
         
-        # 存储交易历史
-        self.trade_history = []
+        # 初始化预测模型
+        self.model = None
+        self.window_size = 60
+        self.feature_count = 10
         
-    def train_models_from_data_directory(self, data_dir="data", model_save_dir="models"):
-        """根据data目录下的历史数据训练模型"""
-        print("开始从data目录训练模型...")
+        # 初始化风险管理器
+        self.risk_manager = DailyDrawdownRisk(max_drawdown=0.05)  # 5%最大回撤
         
-        # 获取data目录下的所有子目录（代表不同的合约数据）
-        for item in os.listdir(data_dir):
-            item_path = os.path.join(data_dir, item)
-            
-            if os.path.isdir(item_path):
-                # 尝试提取合约代码
-                # 例如: rb_1min_2026_01_01_2026_01_26
-                if "rb_" in item:
-                    symbol = "rb"  # 螺纹钢
-                    contract_pattern = "SHFE.rb*"  # 根据实际数据格式调整
-                elif "沪铜" in item:
-                    symbol = "cu"  # 沪铜
-                    contract_pattern = "SHFE.cu*"
-                elif "沪镍" in item:
-                    symbol = "ni"  # 沪镍
-                    contract_pattern = "SHFE.ni*"
-                else:
-                    continue  # 跳过不支持的合约
-                
-                print(f"正在训练 {symbol} 合约的模型...")
-                
+        # 当前交易状态
+        self.is_trading_active = False
+        self.active_contracts = ["rb2605", "cu2605", "ni2605"]  # 支持的合约列表
+        
+        # 账户和资金管理
+        self.account_manager = None
+        self.initial_capital = 1000000  # 初始资金
+        self.current_capital = self.initial_capital
+        
+        # 注册信号处理器，用于优雅退出
+        signal.signal(signal.SIGINT, self.signal_handler)
+        signal.signal(signal.SIGTERM, self.signal_handler)
+        
+        # 存储价格历史
+        self.price_history = {}
+        for contract in self.active_contracts:
+            self.price_history[contract] = []
+        
+        self.max_history_len = 100  # 最大历史数据长度
+        
+        # 从配置文件加载CTP设置
+        self.ctp_setting = self._load_ctp_setting()
+        
+    def _load_ctp_setting(self):
+        """从配置文件加载CTP设置"""
+        import json
+        from pathlib import Path
+        
+        # 尝试从多个可能的位置加载配置
+        config_paths = [
+            "settings/simnow_setting_one.json",
+            "settings/simnow_setting_two.json",
+            "settings/simnow_setting_template.json",
+            "settings/ctp_setting.json"
+        ]
+        
+        for config_path in config_paths:
+            path = Path(config_path)
+            if path.exists():
                 try:
-                    # 训练模型
-                    model, history, model_path = self.trainer_backtester.train_model(
-                        symbol=symbol,
-                        contract_dir=item_path,
-                        contract_pattern=contract_pattern.split('*')[0],  # 去掉通配符
-                        model_type='lstm'
-                    )
+                    with open(path, 'r', encoding='utf-8') as f:
+                        config = json.load(f)
                     
-                    print(f"{symbol} 模型训练完成，保存至: {model_path}")
+                    # 验证配置是否包含占位符
+                    if ("<YOUR_USER_ID>" in str(config) or 
+                        "<YOUR_PASSWORD>" in str(config)):
+                        print(f"⚠️  警告: 配置文件 {config_path} 仍包含占位符")
+                        print("   请编辑配置文件并填入您的真实账户信息")
+                        continue
+                    
+                    return config
                 except Exception as e:
-                    print(f"训练 {symbol} 模型时出错: {e}")
+                    print(f"加载配置文件 {config_path} 时出错: {e}")
                     continue
+        
+        print("❌ 未找到有效配置文件，请运行 setup_env.py 进行初始化")
+        return None
     
-    def connect_ctp(self, config_path="settings/simnow_setting_template.json"):
-        """连接CTP"""
-        print("正在连接CTP...")
+    def signal_handler(self, signum, frame):
+        """信号处理，用于优雅退出"""
+        print(f"\n接收到信号 {signum}，正在安全退出...")
+        self.shutdown()
+        sys.exit(0)
+    
+    def is_trading_time(self):
+        """检查当前是否在交易时间内"""
+        now = datetime.now().time()
         
-        # 获取项目根目录，确保使用绝对路径
-        current_dir = os.path.dirname(os.path.abspath(__file__))  # src目录
-        project_root = os.path.dirname(current_dir)  # 项目根目录
-        full_config_path = os.path.join(project_root, config_path)
+        # 定义交易时间段 (模拟期货交易时间)
+        trading_times = [
+            # 白天盘
+            (datetime.strptime("09:00", "%H:%M").time(), datetime.strptime("10:15", "%H:%M").time()),
+            (datetime.strptime("10:30", "%H:%M").time(), datetime.strptime("11:30", "%H:%M").time()),
+            (datetime.strptime("13:30", "%H:%M").time(), datetime.strptime("15:00", "%H:%M").time()),
+            # 夜盘
+            (datetime.strptime("21:00", "%H:%M").time(), datetime.strptime("23:59", "%H:%M").time()),
+            (datetime.strptime("00:00", "%H:%M").time(), datetime.strptime("02:30", "%H:%M").time()),
+        ]
         
-        # 添加调试信息
-        print(f"检查配置文件路径: {full_config_path}")
-        print(f"当前工作目录: {os.getcwd()}")
-        print(f"项目根目录: {project_root}")
-        print(f"配置文件是否存在: {os.path.exists(full_config_path)}")
+        # 检查当前时间是否在任一交易时间段内
+        for start, end in trading_times:
+            if start <= end:
+                # 同一天的时间段
+                if start <= now <= end:
+                    return True
+            else:
+                # 跨天的时间段 (如 23:59 - 02:30)
+                if now >= start or now <= end:
+                    return True
+                    
+        return False
+    
+    def init_model(self):
+        """初始化模型"""
+        print("正在初始化预测模型...")
         
-        if not os.path.exists(full_config_path):
-            print(f"❌ 配置文件不存在: {full_config_path}")
-            print("💡 请按以下步骤创建配置文件:")
-            print("   1. 访问 https://www.simnow.com.cn/ 注册模拟交易账户")
-            print("   2. 复制模板文件: cp settings/simnow_setting_template.json settings/simnow_setting_one.json")
-            print("   3. 编辑 settings/simnow_setting_one.json 文件，填入您的账户信息")
+        model_path = os.path.join("models", f"SHFE_{self.active_contracts[0]}_prediction_model.keras")
+        
+        if os.path.exists(model_path):
+            try:
+                from tensorflow.keras.models import load_model
+                self.model = load_model(model_path)
+                print(f"✅ 模型加载成功: {model_path}")
+            except Exception as e:
+                print(f"❌ 模型加载失败: {e}")
+                self.model = None
+        else:
+            print(f"⚠️  模型文件不存在: {model_path}, 将在需要时训练新模型")
+    
+    def connect_ctp(self):
+        """连接到CTP"""
+        if not self.ctp_setting:
+            print("❌ 未找到有效的CTP配置，跳过连接")
             return False
             
         try:
-            with open(full_config_path, 'r', encoding='utf-8') as f:
-                setting = json.load(f)
+            print("正在连接到CTP网关...")
+            login_result = self.main_engine.connect(self.ctp_setting, "CTP")
+            print("✅ CTP网关连接请求已提交")
+            
+            # 等待连接建立
+            for i in range(20):  # 增加等待时间
+                time.sleep(1)
+                print(".", end="", flush=True)
+            
+            print("\nCTP连接过程完成")
+            
+            # 验证是否成功连接
+            # 获取账户信息验证连接状态
+            accounts = self.main_engine.get_all_accounts()
+            if len(accounts) > 0:
+                print("✅ CTP连接成功")
+                return True
+            else:
+                print("⚠️  CTP连接可能存在问题，未获取到账户信息")
+                return False
                 
-            # 检查必要字段是否存在
-            required_fields = ['用户名', '密码', '经纪商代码', '交易服务器', '行情服务器']
-            missing_fields = []
+        except Exception as e:
+            print(f"❌ CTP连接失败: {e}")
+            return False
+    
+    def load_and_run_strategy(self, symbol):
+        """加载并运行交易策略"""
+        if not self.ctp_setting:
+            print("❌ 未找到有效的CTP配置，跳过策略执行")
+            return False
             
-            for field in required_fields:
-                value = setting.get(field)
-                # 检查字段是否为空或包含占位符文本
-                if not value or not str(value).strip() or '请在此处填写' in str(value) or '您的' in str(value):
-                    missing_fields.append(field)
-            
-            if missing_fields:
-                print(f"配置文件缺少必要字段或字段值未填写: {missing_fields}")
-                print("提示: 请填写完整的账户信息")
+        try:
+            # 确保策略引擎已就绪
+            if not self.cta_engine:
+                print("❌ CTA策略引擎未就绪")
                 return False
             
-            self.main_engine.connect(setting, "CTP")
-            print("CTP连接请求已发送")
+            print(f"正在为合约 {symbol} 加载和运行策略...")
             
-            # 等待连接结果
-            import time
-            max_wait_time = 10  # 减少等待时间
-            connected = False
+            # 获取合约详细信息
+            contract = self.main_engine.get_contract(f"{symbol}.SHFE")
+            if not contract:
+                print(f"❌ 无法获取合约信息: {symbol}")
+                return False
             
-            for i in range(max_wait_time):
-                time.sleep(1)
-                print(f"等待连接结果... {i+1}/{max_wait_time}")
-                
-                # 尝试获取合约信息判断连接状态
-                try:
-                    contracts = self.main_engine.get_all_contracts()
-                    if len(contracts) > 0:
-                        print(f"✅ 行情连接成功！已获取到 {len(contracts)} 个合约信息")
-                        # 注意：这通常只代表行情服务器连接正常，交易功能需进一步验证
-                        connected = True
-                        break
-                except Exception:
-                    pass
-            
-            if not connected:
-                print("⚠️ CTP连接超时")
-                print("提示: 请检查SimNow账户配置、网络连接，并确认交易/行情服务器地址是否正确")
-                
-            return connected
-        except Exception as e:
-            print(f"连接CTP时出错: {e}")
-            return False
-    
-    def load_and_run_strategy(self, symbol, model_path=None):
-        """加载并运行预测交易策略"""
-        print(f"正在为 {symbol} 加载并运行交易策略...")
-        
-        # 构造合约符号
-        if symbol == "rb":
-            vt_symbol = "rb2602.SHFE"  # 螺纹钢主力合约
-        elif symbol == "cu":
-            vt_symbol = "cu2602.SHFE"  # 沪铜主力合约
-        elif symbol == "ni":
-            vt_symbol = "ni2602.SHFE"  # 沪镍主力合约
-        else:
-            print(f"不支持的合约符号: {symbol}")
-            return False
-        
-        # 获取CTA策略引擎
-        cta_engine = self.main_engine.get_engine("CtaStrategy")
-        
-        # 策略名称
-        strategy_name = f"SimpleTestStrategy_{vt_symbol.replace('.', '_')}"
-        
-        # 策略设置
-        setting = {
-            "fixed_size": 1
-        }
-        
-        try:
-            # 先订阅行情，确保合约存在
-            from vnpy.trader.object import SubscribeRequest
-            from vnpy.trader.constant import Exchange
-            
-            exchange_map = {
-                "SHFE": Exchange.SHFE,
-                "DCE": Exchange.DCE,
-                "CZCE": Exchange.CZCE,
-                "CFFEX": Exchange.CFFEX,
-                "INE": Exchange.INE
+            # 添加策略实例
+            strategy_setting = {
+                "vt_symbol": f"{symbol}.SHFE",
+                " classname": "PredictiveTradingStrategy",
+                "prediction_threshold": 0.005,
+                "fixed_size": 1,
+                "trailing_percent": 0.8
             }
             
-            symbol_part, exchange_part = vt_symbol.split('.')
-            exchange = exchange_map.get(exchange_part, Exchange.SHFE)
-            
-            req = SubscribeRequest(
-                symbol=symbol_part,
-                exchange=exchange
-            )
-            
-            self.main_engine.subscribe(req, "CTP")
-            print(f"已订阅 {vt_symbol} 行情")
-            
-            print(f"尝试添加策略类 {SimpleTestStrategy.__name__} 到CTA引擎...")
+            # 使用唯一策略名称
+            strategy_name = f"predictive_strategy_{symbol}_{int(time.time())}"
             
             # 添加策略
-            cta_engine.add_strategy(
-                SimpleTestStrategy,  # 使用简单测试策略
-                strategy_name,       # 策略名称
-                vt_symbol,           # 合约
-                setting              # 设置
-            )
-            
-            print(f"策略 {strategy_name} 添加成功")
-            
-            # 异步初始化策略（不等待完成）
-            print(f"开始异步初始化策略 {strategy_name}...")
-            cta_engine.init_strategy(strategy_name)
-            
-            # 不等待初始化完成，直接返回成功
-            print(f"策略 {strategy_name} 已提交初始化请求，将在后台完成")
-            print(f"策略 {strategy_name} 已添加并订阅 {vt_symbol}")
-            return True
+            try:
+                self.cta_engine.add_strategy(
+                    class_=PredictiveTradingStrategy,
+                    strategy_name=strategy_name,
+                    vt_symbol=f"{symbol}.SHFE",
+                    setting={
+                        "prediction_threshold": 0.005,
+                        "fixed_size": 1,
+                        "trailing_percent": 0.8
+                    }
+                )
+                
+                # 启动策略
+                self.cta_engine.start_strategy(strategy_name)
+                print(f"✅ 策略 {strategy_name} 已启动")
+                
+            except Exception as e:
+                print(f"❌ 添加策略失败: {e}")
+                import traceback
+                traceback.print_exc()
+                
         except Exception as e:
+            print(f"❌ 运行策略时出错: {e}")
             import traceback
-            print(f"加载和运行策略时出错: {e}")
-            print(f"详细错误信息: {traceback.format_exc()}")
-            return False
+            traceback.print_exc()
     
-    def calculate_performance(self):
-        """计算收益率等绩效指标"""
-        print("正在计算绩效指标...")
+    def train_models_from_data_directory(self):
+        """从data目录训练模型"""
+        print("正在从data目录训练模型...")
         
-        # 获取账户信息
-        accounts = self.main_engine.get_all_accounts()
-        positions = self.main_engine.get_all_positions()
-        trades = self.main_engine.get_all_trades()
-        
-        print(f"账户数量: {len(accounts)}")
-        print(f"持仓数量: {len(positions)}")
-        print(f"成交数量: {len(trades)}")
-        
-        if trades:
-            # 计算总盈亏
-            total_pnl = sum(trade.turnover * trade.direction.value for trade in trades)
-            print(f"总盈亏: {total_pnl}")
-        
-        # TODO: 添加更详细的绩效分析
-        print("绩效计算完成")
-    
-    def run_full_process(self):
-        """运行完整流程"""
-        print("开始运行完整交易流程...")
-        
-        # 1. 从data目录训练模型
-        print("\n1. 训练模型...")
-        self.train_models_from_data_directory()
-        
-        # 2. 连接CTP
-        print("\n2. 连接CTP...")
-        ctp_connected = self.connect_ctp()
-        
-        if ctp_connected:
-            # 3. 加载并运行策略
-            print("\n3. 加载并运行交易策略...")
-            symbols = ["rb", "cu", "ni"]  # 支持的合约
-            for symbol in symbols:
-                self.load_and_run_strategy(symbol)
-        else:
-            print("\n3. CTP连接失败，跳过策略执行，系统将继续提供回测等功能...")
-        
-        # 4. 提供其他功能
-        print("\n4. 系统其他功能...")
-        print("系统已准备好，可执行以下操作:")
-        print("- 模型训练和回测")
-        print("- 历史数据分析")
-        print("- 风险管理计算")
-        
-        if ctp_connected:
-            print("- 实时交易执行")
-            print("- 行情监控")
-        
-        print("\n系统运行完成。")
-        
-        if not ctp_connected:
-            print("\n注意: 系统检测到未配置真实交易账户，仅执行了模型训练等功能。")
-            print("如需进行实盘或仿真交易，请按以下步骤操作：")
-            print("1. 访问 http://www.simnow.com.cn 注册SimNow仿真账户")
-            print("2. 在 settings/simnow_setting.json 中填写您的账户信息")
-            print("3. 重新运行程序")
-        
-        # 关闭所有引擎
-        self.main_engine.close()
-    
-    def run(self):
-        """
-        运行交易系统
-        """
-        print("期货智能交易系统")
-        print("=" * 50)
-        print("功能:")
-        print("1. 检测当前是否在交易时间内")
-        print("2. 获取期货合约信息")
-        print("3. 使用rb2605.SHFE合约进行行情监测")
-        print("4. 实时监控行情数据")
-        print("5. 集成预测模型进行价格预测")
-        print("6. 基于预测结果执行交易决策")
-        print("7. 实施风险管理措施")
-        print("8. 训练并回测多个期货品种的模型")
-        print("=" * 50)
-        
-        print("开始智能交易...")
-        
-        # 检查当前时间是否在交易时间内
-        if not self.is_trading_time():
-            print("❌ 当前时间不在交易时间内，程序退出")
-            print("💡 注意：即使在非交易时间也可以进行模型训练")
+        # 检查data目录是否存在
+        if not os.path.exists("data"):
+            print("❌ data目录不存在，跳过模型训练")
             return
         
-        print(f"当前时间 {datetime.now().strftime('%H:%M:%S')} 在交易时间内")
+        # 遍历data目录下的CSV文件
+        import glob
+        csv_files = glob.glob("data/*.csv")
         
-        # 首先初始化和训练预测模型 - 必须在连接CTP之前完成
-        print("🔄 开始初始化预测模型...")
-        self.initialize_prediction_model()
+        if not csv_files:
+            print("❌ 未找到CSV数据文件，跳过模型训练")
+            return
         
-        # 确保模型已加载或训练完成后再继续
-        print("✅ 预测模型已准备就绪，现在开始连接CTP网关...")
+        print(f"找到 {len(csv_files)} 个数据文件")
         
-        # 连接到期货公司并启动自动交易
-        print("🔄 开始连接CTP网关...")
-        print("💡 注意：首次运行前请按以下步骤配置SimNow账户:")
-        print("   1. 访问 https://www.simnow.com.cn/ 注册模拟交易账户")
-        print("   2. 复制模板文件: cp settings/simnow_setting_template.json settings/simnow_setting_one.json")
-        print("   3. 编辑 settings/simnow_setting_one.json 文件，填入您的账户信息")
-        print("🔄 开始订阅合约行情...")
-        print("🔄 开始启动事件引擎...")
+        for csv_file in csv_files:
+            print(f"正在处理 {csv_file}...")
+            
+            try:
+                # 从文件名提取合约代码
+                import re
+                match = re.search(r'([a-zA-Z]+)\d+', os.path.basename(csv_file))
+                if match:
+                    contract_code = match.group(1)
+                else:
+                    print(f"⚠️  无法从文件名 {csv_file} 提取合约代码，跳过")
+                    continue
+                
+                # 加载数据
+                data = pd.read_csv(csv_file)
+                
+                # 确保数据有足够的列
+                required_columns = ['datetime', 'open', 'high', 'low', 'close', 'volume']
+                if not all(col in data.columns for col in required_columns):
+                    print(f"⚠️  数据文件 {csv_file} 缺少必要列，跳过")
+                    continue
+                
+                # 设置日期时间为索引
+                data['datetime'] = pd.to_datetime(data['datetime'])
+                data.set_index('datetime', inplace=True)
+                
+                # 初始化并训练模型
+                model = PricePredictionModel(model_type='lstm', window_size=60)
+                
+                # 准备训练数据
+                processed_data = self.data_processor.process(data)
+                
+                if processed_data is not None and len(processed_data) > 100:  # 确保有足够的数据
+                    print(f"开始训练 {contract_code} 的预测模型...")
+                    model.train(processed_data, epochs=50)  # 减少训练轮次以加快速度
+                    
+                    # 保存模型
+                    model_path = os.path.join("models", f"SHFE_{contract_code}_prediction_model.keras")
+                    model.save(model_path)
+                    print(f"✅ 模型已保存至 {model_path}")
+                else:
+                    print(f"⚠️  数据不足，跳过 {contract_code} 的模型训练")
+                    
+            except Exception as e:
+                print(f"❌ 处理文件 {csv_file} 时出错: {e}")
+                import traceback
+                traceback.print_exc()
+    
+    def shutdown(self):
+        """关闭系统"""
+        print("正在关闭综合交易系统...")
         
-        # 直接运行自动交易，其中包含了连接网关、订阅行情和启动事件引擎
-        self.run_auto_trading()
+        # 关闭CTA策略引擎
+        if self.cta_engine:
+            try:
+                # 停止所有策略
+                running_strategies = self.cta_engine.get_all_strategy_status()
+                for strategy_name in running_strategies.keys():
+                    self.cta_engine.stop_strategy(strategy_name)
+            except Exception as e:
+                print(f"停止策略时出错: {e}")
+        
+        # 关闭主引擎
+        try:
+            self.main_engine.close()
+            print("系统已安全退出")
+        except Exception as e:
+            print(f"关闭系统时出错: {e}")
 
 
 def main():

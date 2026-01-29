@@ -126,12 +126,18 @@ class PricePredictionModel:
         all_feature_cols = feature_columns + [col for col in df.columns if col not in feature_columns and col not in ['datetime']]
         features = df[all_feature_cols].values
         
-        # 标准化特征
-        scaled_features = self.scaler.fit_transform(features)
+        # 标准化特征 - 只有在scaler未被拟合时才进行fit_transform
+        if hasattr(self.scaler, 'n_samples_seen_') and self.scaler.n_samples_seen_ > 0:
+            scaled_features = self.scaler.transform(features)
+        else:
+            scaled_features = self.scaler.fit_transform(features)
         
         # 标准化目标变量（收盘价）
         target_values = df[['close']].values
-        scaled_target = self.target_scaler.fit_transform(target_values)
+        if hasattr(self.target_scaler, 'n_samples_seen_') and self.target_scaler.n_samples_seen_ > 0:
+            scaled_target = self.target_scaler.transform(target_values)
+        else:
+            scaled_target = self.target_scaler.fit_transform(target_values)
         
         # 准备序列数据，目标是30个时间步长后的价格
         X, y = [], []
@@ -187,6 +193,9 @@ class PricePredictionModel:
         """
         if self.model is None:
             self.build_model()
+        
+        # 确保在训练前已经拟合了scaler
+        # 注意：X和y应该已经在prepare_data_for_30min_prediction中被正确标准化
         
         # 定义回调函数
         early_stopping = EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True)

@@ -43,27 +43,45 @@
 ## 系统架构
 
 ```
-├── data/                     # 历史数据存储
+├── README.md                 # 项目说明文档
+├── PROJECT_STRUCTURE.md      # 项目结构说明
+├── SYSTEM_ARCHITECTURE.md    # 系统架构设计文档
+├── CLEANUP_LOG.md           # 清理和重构日志
+├── requirements.txt         # 项目依赖
+├── run_system.py            # 系统统一入口
+├── setup_env.py             # 环境初始化脚本
+├── smart_auto_trading.py    # 主交易程序
+├── auto_trading_system.py   # 自动交易系统
+├── trading_system.py        # 综合交易系统
+├── train_rb2605_model.py    # 模型训练脚本
+├── simple_auto_trading.py   # 简化版自动交易系统
+├── data/                    # 历史数据目录
 │   ├── rb_1min_*           # 螺纹钢1分钟K线数据
 │   ├── 沪铜_1min_*         # 沪铜1分钟K线数据
 │   └── 沪镍_1min_*         # 沪镍1分钟K线数据
-├── models/                   # 训练好的模型
-│   └── SHFE_rb_*_prediction_model.keras
-├── src/                      # 源代码
-│   ├── market_data/          # 行情数据服务
-│   ├── models/               # 机器学习模型
-│   ├── risk_management/      # 风险管理模块
-│   └── trading/              # 交易相关模块
-│       └── contract_specs.py # 合约规格配置
-├── settings/                 # 交易配置
-│   ├── simnow_setting_one.json    # SimNow实盘交易配置（用户创建）
-│   ├── simnow_setting_two.json    # SimNow测试配置（用户创建）
+├── models/                  # 训练好的模型目录
+│   └── *_prediction_model* # 预测模型文件
+├── settings/                # 交易配置目录
+│   ├── simnow_setting_one.json    # SimNow配置文件1
+│   ├── simnow_setting_two.json    # SimNow配置文件2
 │   └── simnow_setting_template.json # SimNow配置模板
-├── smart_auto_trading.py     # 主交易程序
-├── setup_env.py              # 环境初始化脚本
-├── train_rb2605_model.py     # 模型训练脚本
-└── README.md
+├── src/                     # 源代码主目录
+│   ├── account/             # 账户管理模块
+│   ├── ctp/                 # CTP接口模块
+│   ├── data/                # 数据处理模块
+│   ├── market_data/         # 行情数据模块
+│   ├── models/              # 机器学习模型模块
+│   ├── risk_management/     # 风险管理模块
+│   ├── strategies/          # 交易策略模块
+│   ├── trading/             # 交易模块
+│   └── utils/               # 工具模块
+├── logs/                    # 日志目录
+└── venv/                    # Python虚拟环境目录
 ```
+
+## 安全说明
+
+⚠️ **重要**：为保护您的账户安全，本系统不再使用硬编码的账户信息。所有敏感信息（如用户名、密码）都必须通过配置文件管理。
 
 ## 安装与配置
 
@@ -82,68 +100,80 @@
    python setup_env.py
    ```
 
-4. **手动配置（可选）**  
-   如果您选择手动配置，请按以下步骤操作：
-   - 访问 https://www.simnow.com.cn/
-   - 注册模拟交易账户
-   - 运行环境初始化脚本：`python setup_env.py`
-   - 脚本将引导您完成账户配置
+4. **系统运行**  
+   使用统一入口运行不同功能：
+   ```bash
+   # 查看所有命令
+   python run_system.py all_commands
    
-   或者手动操作：
-   1. 复制模板文件: `cp settings/simnow_setting_template.json settings/simnow_setting_one.json`
-   2. 编辑 `settings/simnow_setting_one.json`，填入您的真实账户信息
-
-5. **数据准备**  
-   - 确保 `data/` 目录下有对应品种的历史数据
-   - 数据格式：CSV，包含时间、开盘价、最高价、最低价、收盘价、成交量
+   # 初始化环境
+   python run_system.py setup
+   
+   # 运行智能交易系统
+   python run_system.py trading
+   
+   # 训练模型
+   python run_system.py training
+   
+   # 运行回测
+   python run_system.py backtesting
+   ```
 
 ## 使用方法
 
-1. **训练模型**
-   ```bash
-   python train_rb2605_model.py
-   ```
+### 1. 环境初始化
+```bash
+python run_system.py setup
+```
 
-2. **运行智能交易系统**
-   ```bash
-   python smart_auto_trading.py
-   ```
+### 2. 模型训练
+```bash
+python run_system.py training
+```
 
-3. **系统运行注意事项**
-   - 确保在交易时间内运行
-   - 账户资金充足以覆盖保证金需求
-   - 系统会根据预测结果和成本分析自动执行交易
+### 3. 运行交易系统
+```bash
+python run_system.py trading
+```
 
-## 安全提醒
+### 4. 运行回测
+```bash
+python run_system.py backtesting
+```
 
-- **请确保您的 `.gitignore` 文件已正确配置，避免提交包含敏感信息的配置文件**
-- **不要在公共仓库中分享包含真实凭证的配置文件**
-- 定期更换您的交易账户密码
-- 仅在可信的网络环境中运行交易系统
+## 重构和改进
+
+### 1. 安全性改进
+- 移除了所有硬编码的账户信息
+- 改为从配置文件动态加载账户信息
+- 添加了占位符检测，防止意外使用模板值
+
+### 2. 代码结构改进
+- 统一了配置文件加载逻辑
+- 改进了错误处理机制
+- 增强了系统健壮性
+
+### 3. 用户体验改进
+- 创建了统一的系统入口(run_system.py)
+- 改进了命令行交互
+- 增加了更多有用的提示信息
+
+### 4. 项目结构优化
+- 删除了无关的C++ API文件
+- 移除了测试和临时文件
+- 添加了清晰的项目结构文档
+
+## 注意事项
+
+1. **交易时间**：系统仅在期货交易时间内运行（日盘和夜盘）
+2. **资金管理**：合理设置投资金额，控制风险
+3. **网络连接**：确保稳定网络连接，避免交易中断
+4. **模型更新**：定期更新预测模型以适应市场变化
 
 ## 风险提示
 
-1. 期货交易具有高风险，请合理控制仓位
-2. 本系统仅供学习交流使用，实盘交易需谨慎
-3. 市场行情瞬息万变，模型预测结果仅供参考
-4. 请确保遵守当地法律法规
+期货交易具有高风险，请在使用本系统前充分了解相关风险，并仅投入您能承受损失的资金。
 
-## 技术栈
+## 许可证
 
-- Python 3.8+
-- TensorFlow/Keras - 深度学习框架
-- vn.py - 量化交易开发框架
-- Pandas/Numpy - 数据处理
-- Scikit-learn - 机器学习库
-
-## 维护与更新
-
-- 定期更新模型以适应市场变化
-- 监控交易表现并调整策略参数
-- 根据实际交易结果优化风险控制机制
-
-## 参考资料
-
-- SimNow模拟交易平台: https://www.simnow.com.cn/
-- vn.py官方文档: https://www.vnpy.com/
-- TensorFlow官方文档: https://www.tensorflow.org/
+本项目仅供学习和研究使用，不得用于商业目的。

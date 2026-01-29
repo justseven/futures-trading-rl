@@ -121,10 +121,13 @@ class ModelTrainerAndBacktester:
         # 2. 数据预处理和特征工程
         print("正在进行数据预处理和特征工程...")
         
-        # 3. 准备训练数据
-        print("正在准备训练数据...")
-        sequence_length = 60
-        X, y = self.prepare_training_data(df, f'{contract_pattern}.close', sequence_length)
+        # 3. 准备训练数据 - 使用PricePredictionModel的方法
+        # 将数据转换为标准格式
+        standard_df = self.convert_to_standard_format(df)
+        
+        # 创建PricePredictionModel实例来使用其预处理方法
+        temp_model = PricePredictionModel(model_type=model_type, sequence_length=60, n_features=10)
+        X, y = temp_model.prepare_data_for_30min_prediction(standard_df, prediction_horizon=30)
         
         if len(X) == 0:
             print("没有足够的数据用于训练")
@@ -141,30 +144,45 @@ class ModelTrainerAndBacktester:
         print("正在创建和训练模型...")
         model = PricePredictionModel(
             model_type=model_type,
-            sequence_length=sequence_length,
+            sequence_length=60,  # 使用固定的序列长度
             n_features=X.shape[2] if len(X.shape) > 2 else 1
         )
         
         # 训练模型
         history = model.train(
-            X_train=X_train,
-            y_train=y_train,
-            X_val=X_test,
-            y_val=y_test,
+            X_train,
+            y_train,
+            validation_split=0.2,
             epochs=50,
             batch_size=32
         )
         
         # 6. 评估模型
         print("正在评估模型...")
-        evaluation = model.evaluate(X_test, y_test)
-        print(f"模型评估结果: {evaluation}")
+        # 使用测试数据进行预测
+        try:
+            y_pred = model.predict(X_test)
+            # 计算评估指标
+            from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+            mse = mean_squared_error(y_test, y_pred)
+            mae = mean_absolute_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            
+            evaluation = {
+                'mse': mse,
+                'mae': mae,
+                'r2': r2
+            }
+            print(f"模型评估结果: MSE={mse:.2f}, MAE={mae:.2f}, R²={r2:.4f}")
+        except Exception as e:
+            print(f"⚠️ 评估模型时发生错误: {e}")
+            print("跳过评估，继续保存模型...")
         
         # 7. 保存模型
         model_dir = "models"
         os.makedirs(model_dir, exist_ok=True)
         symbol_safe = symbol.replace('.', '_').replace('@', '_')
-        model_path = os.path.join(model_dir, f"{symbol_safe}_{contract_pattern}_prediction_model.h5")
+        model_path = os.path.join(model_dir, f"{symbol_safe}_{contract_pattern}_prediction_model.keras")
         model.save_model(model_path)
         
         print(f"模型已保存至: {model_path}")

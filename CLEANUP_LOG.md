@@ -73,6 +73,28 @@
 
 新增了 [run_ctp_trading.py](file:///d:/工作/期货散户交易系统/run_ctp_trading.py) 作为项目的统一入口文件，提供了命令行和GUI两种运行模式的选择。
 
+## 本次重构更新
+
+本次重构主要进行了以下更新：
+
+1. **安全性改进**：
+   - 移除了 [simple_auto_trading.py](file:///d:/futures-trading-rl/simple_auto_trading.py) 中的硬编码账户信息
+   - 移除了 [smart_auto_trading.py](file:///d:/futures-trading-rl/smart_auto_trading.py) 中的硬编码账户信息
+   - 所有系统现在从配置文件动态加载账户信息
+
+2. **代码结构改进**：
+   - 统一了配置文件加载逻辑到 [_load_ctp_setting 方法](file:///d:/futures-trading-rl/src/trading_system.py#L73-L94)
+   - 改进了错误处理和验证机制
+   - 增强了系统健壮性
+
+3. **系统入口统一**：
+   - 创建了 [run_system.py](file:///d:/futures-trading-rl/run_system.py) 作为统一的系统入口
+   - 支持多种运行模式（设置、训练、交易、回测等）
+
+4. **文档更新**：
+   - 更新了 [README.md](file:///d:/futures-trading-rl/README.md) 以反映重构内容
+   - 增加了安全说明和使用指南
+
 ## 结果
 
-重构后，项目结构更加清晰，模块职责分明，便于维护和扩展。现在项目已配置为使用SimNow仿真环境，适合开发和测试。
+重构后，项目结构更加清晰，模块职责分明，便于维护和扩展。现在项目已配置为使用SimNow仿真环境，适合开发和测试。系统更加安全，不再包含硬编码的敏感信息。
